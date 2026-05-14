@@ -117,7 +117,7 @@ async function reevaluarConflictosDashboard(dashboardId) {
       }
     });
 
-    // 3. Detectar conflictos de toque de semestre
+    // 3. Detectar conflictos de toque de semestre (misma especialidad + mismo semestre)
     for (let i = 0; i < horas.length; i++) {
       for (let j = i + 1; j < horas.length; j++) {
         const hora1 = horas[i];
@@ -133,11 +133,12 @@ async function reevaluarConflictosDashboard(dashboardId) {
             continue;
           }
 
-          const semestres1 = extraerSemestres(hora1.especialidades_semestres);
-          const semestres2 = extraerSemestres(hora2.especialidades_semestres);
-          const semestresComunes = semestres1.filter(s => semestres2.includes(s));
+          const pares1 = extraerEspecialidadSemestres(hora1.especialidades_semestres);
+          const pares2 = extraerEspecialidadSemestres(hora2.especialidades_semestres);
+          const claves2 = new Set(pares2.map(p => `${p.especialidad}|${p.semestre}`));
+          const paresComunes = pares1.filter(p => claves2.has(`${p.especialidad}|${p.semestre}`));
 
-          if (semestresComunes.length > 0) {
+          if (paresComunes.length > 0) {
             agregarConflicto(hora1.hora_reg_id, hora2.hora_reg_id, 'semestre');
           }
         }
@@ -262,10 +263,33 @@ async function reevaluarConflictosDashboard(dashboardId) {
 }
 
 /**
- * Extrae los semestres de especialidades_semestres
+ * Extrae pares {especialidad, semestre} desde especialidades_semestres
  * Maneja tanto array como objeto
  */
-function extraerSemestres(especialidades_semestres) {
+function normalizarEspecialidad(nombre) {
+  return String(nombre ?? '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase();
+}
+
+function parseNumeroSemestre(semestre) {
+  if (semestre == null) return null;
+
+  if (typeof semestre === 'number') {
+    return Math.floor(semestre);
+  }
+
+  if (typeof semestre === 'string') {
+    const numero = parseInt(semestre.replace(/[^0-9]/g, ''), 10);
+    return isNaN(numero) ? null : numero;
+  }
+
+  return null;
+}
+
+function extraerEspecialidadSemestres(especialidades_semestres) {
   if (!especialidades_semestres) return [];
 
   let esp = especialidades_semestres;
@@ -277,29 +301,33 @@ function extraerSemestres(especialidades_semestres) {
     }
   }
 
-  let semestres = [];
-  
+  const pares = [];
+  const pushPar = (nombreRaw, semestreRaw) => {
+    const especialidad = normalizarEspecialidad(nombreRaw);
+    const semestre = parseNumeroSemestre(semestreRaw);
+    if (!especialidad || semestre == null) return;
+    pares.push({ especialidad, semestre });
+  };
+
   if (Array.isArray(esp)) {
-    semestres = esp.map(e => {
-      const sem = e.semestre || e;
-      // Limpiar letras: "11e" -> 11
-      if (typeof sem === 'string') {
-        const num = parseInt(sem.replace(/[^0-9]/g, ''), 10);
-        return isNaN(num) ? null : num;
+    esp.forEach((item) => {
+      if (item && typeof item === 'object') {
+        const nombre = item.nombre ?? item.especialidad ?? item.nombre_especialidad;
+        const semestre = item.semestre ?? item.valor ?? item;
+        pushPar(nombre, semestre);
       }
-      return sem;
-    }).filter(s => s !== null);
+    });
   } else if (typeof esp === 'object') {
-    semestres = Object.values(esp).flat().map(sem => {
-      if (typeof sem === 'string') {
-        const num = parseInt(sem.replace(/[^0-9]/g, ''), 10);
-        return isNaN(num) ? null : num;
+    Object.entries(esp).forEach(([nombre, valor]) => {
+      if (Array.isArray(valor)) {
+        valor.forEach((sem) => pushPar(nombre, sem));
+      } else {
+        pushPar(nombre, valor);
       }
-      return sem;
-    }).filter(s => s !== null);
+    });
   }
 
-  return semestres;
+  return pares;
 }
 
 /**
@@ -446,13 +474,12 @@ async function reevaluarConflictosPruebasDashboard(dashboardId) {
           }
 
           // Extraer semestres de ambas pruebas
-          const semestres1 = extraerSemestres(prueba1.especialidades_semestres);
-          const semestres2 = extraerSemestres(prueba2.especialidades_semestres);
+          const pares1 = extraerEspecialidadSemestres(prueba1.especialidades_semestres);
+          const pares2 = extraerEspecialidadSemestres(prueba2.especialidades_semestres);
+          const claves2 = new Set(pares2.map(p => `${p.especialidad}|${p.semestre}`));
+          const paresComunes = pares1.filter(p => claves2.has(`${p.especialidad}|${p.semestre}`));
 
-          // Encontrar semestres comunes
-          const semestresComunes = semestres1.filter(s => semestres2.includes(s));
-
-          if (semestresComunes.length > 0) {
+          if (paresComunes.length > 0) {
             // Hay conflicto de toque de semestre
             if (!conflictosPorPrueba[prueba1.prueba_reg_id]) {
               conflictosPorPrueba[prueba1.prueba_reg_id] = [];
@@ -635,7 +662,7 @@ function tieneConflictoHorarioProtegidoPrueba(prueba) {
 export {
   reevaluarConflictosDashboard,
   reevaluarConflictosPruebasDashboard,
-  extraerSemestres,
+  extraerEspecialidadSemestres,
   tieneConflictoDisponibilidad,
   tieneConflictoHorarioProtegido,
   tieneConflictoHorarioProtegidoPrueba

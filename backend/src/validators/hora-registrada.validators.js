@@ -1,5 +1,73 @@
 import  pool  from '../db/pool.js';
 
+function normalizarEspecialidad(nombre) {
+  return String(nombre ?? '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase();
+}
+
+function parseNumeroSemestre(semestre) {
+  if (semestre == null) return null;
+
+  if (typeof semestre === 'number') {
+    return Math.floor(semestre);
+  }
+
+  if (typeof semestre === 'string') {
+    const numero = parseInt(semestre.replace(/[^0-9]/g, ''), 10);
+    return Number.isNaN(numero) ? null : numero;
+  }
+
+  return null;
+}
+
+function extraerEspecialidadSemestres(especialidades) {
+  if (!especialidades) return [];
+
+  let esp = especialidades;
+  if (typeof esp === 'string') {
+    try {
+      esp = JSON.parse(esp);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  const pares = [];
+  const pushPar = (nombreRaw, semestreRaw) => {
+    const especialidad = normalizarEspecialidad(nombreRaw);
+    const semestre = parseNumeroSemestre(semestreRaw);
+    if (!especialidad || semestre == null) return;
+    pares.push({
+      especialidad,
+      label: String(nombreRaw ?? '').trim(),
+      semestre
+    });
+  };
+
+  if (Array.isArray(esp)) {
+    esp.forEach((item) => {
+      if (item && typeof item === 'object') {
+        const nombre = item.nombre ?? item.especialidad ?? item.nombre_especialidad;
+        const semestre = item.semestre ?? item.valor ?? item;
+        pushPar(nombre, semestre);
+      }
+    });
+  } else if (typeof esp === 'object') {
+    Object.entries(esp).forEach(([nombre, valor]) => {
+      if (Array.isArray(valor)) {
+        valor.forEach((sem) => pushPar(nombre, sem));
+      } else {
+        pushPar(nombre, valor);
+      }
+    });
+  }
+
+  return pares;
+}
+
 /**
  * Sistema modular de validaciones para horas registradas
  * Cada validador retorna: { isValid: boolean, warning?: string, error?: string }
@@ -23,25 +91,11 @@ async function validarToquesDeSemestre(horaProgramableId, dashboardId, horario, 
     }
 
     const horaProgramableActual = progResult.rows[0];
-    let especialidadesActuales = horaProgramableActual.especialidades_semestres;
-    
-    if (typeof especialidadesActuales === 'string') {
-      try {
-        especialidadesActuales = JSON.parse(especialidadesActuales);
-      } catch (e) {
-        especialidadesActuales = {};
-      }
-    }
+    const paresActuales = extraerEspecialidadSemestres(
+      horaProgramableActual.especialidades_semestres
+    );
 
-    // Extraer los semestres de la hora actual
-    let semestresActuales = [];
-    if (Array.isArray(especialidadesActuales)) {
-      semestresActuales = especialidadesActuales.map(e => e.semestre || e).filter(s => s);
-    } else if (typeof especialidadesActuales === 'object') {
-      semestresActuales = Object.values(especialidadesActuales).filter(s => s);
-    }
-
-    if (semestresActuales.length === 0) {
+    if (paresActuales.length === 0) {
       return { isValid: true }; // Sin semestres asignados, no hay conflicto
     }
 
@@ -65,30 +119,26 @@ async function validarToquesDeSemestre(horaProgramableId, dashboardId, horario, 
         continue;
       }
 
-      let especialidadesOtras = row.especialidades_semestres;
-      if (typeof especialidadesOtras === 'string') {
-        try {
-          especialidadesOtras = JSON.parse(especialidadesOtras);
-        } catch (e) {
-          especialidadesOtras = {};
-        }
+      const paresOtras = extraerEspecialidadSemestres(row.especialidades_semestres);
+      if (paresOtras.length === 0) {
+        continue;
       }
 
-      // Extraer semestres de la otra hora
-      let semestresOtras = [];
-      if (Array.isArray(especialidadesOtras)) {
-        semestresOtras = especialidadesOtras.map(e => e.semestre || e).filter(s => s);
-      } else if (typeof especialidadesOtras === 'object') {
-        semestresOtras = Object.values(especialidadesOtras).filter(s => s);
-      }
+      const clavesOtras = new Set(
+        paresOtras.map(p => `${p.especialidad}|${p.semestre}`)
+      );
 
-      // Buscar semestres comunes
-      const semestresComunes = semestresActuales.filter(s => 
-        semestresOtras.includes(s)
+      const paresComunes = paresActuales.filter(p =>
+        clavesOtras.has(`${p.especialidad}|${p.semestre}`)
       );
 
       // Si comparten semestre en el mismo bloque horario
-      if (semestresComunes.length > 0) {
+      if (paresComunes.length > 0) {
+        const detalles = [...new Set(paresComunes.map((p) => {
+          const label = p.label || p.especialidad;
+          return label ? `${label} ${p.semestre}` : `Semestre ${p.semestre}`;
+        }))];
+
         // Obtener títulos de los programables para el mensaje
         const prog1Result = await pool.query(
           `SELECT titulo FROM horas_programables WHERE id = $1`,
@@ -104,13 +154,13 @@ async function validarToquesDeSemestre(horaProgramableId, dashboardId, horario, 
 
         return {
           isValid: false,
-          warning: `⚠️ Conflicto de horario: ${prog1Title} Sección ${horaProgramableActual.seccion} está tocando con ${prog2Title} Sección ${row.seccion} en el semestre ${semestresComunes.join(', ')}.`,
+          warning: `⚠️ Conflicto de horario: ${prog1Title} Sección ${horaProgramableActual.seccion} está tocando con ${prog2Title} Sección ${row.seccion} en ${detalles.join(', ')}.`,
           conflictingHoraRegId: row.id,
           conflictingCourses: [
             { codigo: horaProgramableActual.codigo, seccion: horaProgramableActual.seccion, horaProgId: horaProgramableId },
             { codigo: row.codigo, seccion: row.seccion, horaRegId: row.id }
           ],
-          conflictingSemesters: semestresComunes
+          conflictingSemesters: detalles
         };
       }
     }

@@ -196,6 +196,9 @@
   cursor: move;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   transition: all 0.2s;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .placed-postit.conflicting {
@@ -227,6 +230,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 
 .postit-header {
@@ -241,6 +245,7 @@
   font-size: 11px;
   flex: 1;
   word-break: break-word;
+  min-width: 0;
 }
 
 .remove-btn {
@@ -268,23 +273,28 @@
 }
 
 .postit-title-small {
-  color: #555;
+  color: #111;
   font-size: 10px;
   font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  min-width: 0;
 }
 
 .postit-type {
-  color: #999;
-  font-size: 9px;
+  color: #111;
+  font-size: 10px;
   font-style: italic;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  min-width: 0;
 }
 
 .timetable-header {
   display: grid;
-  grid-template-columns: 120px repeat(5, 1fr);
+  grid-template-columns: 120px repeat(5, minmax(0, 1fr));
   gap: 0;
   border-bottom: 2px solid #667eea;
   background: #f8f9fa;
@@ -306,6 +316,7 @@
   text-align: center;
   color: #333;
   border-right: 1px solid #e0e0e0;
+  min-width: 0;
 }
 
 .day-header:last-child {
@@ -319,7 +330,7 @@
 
 .time-row {
   display: grid;
-  grid-template-columns: 120px repeat(5, 1fr);
+  grid-template-columns: 120px repeat(5, minmax(0, 1fr));
   gap: 0;
   border-bottom: 1px solid #ddd;
   min-height: 80px;
@@ -351,6 +362,7 @@
   justify-content: center;
   position: relative;
   transition: background-color 0.2s;
+  min-width: 0;
 }
 
 .cell:hover {
@@ -370,6 +382,7 @@
   gap: 4px;
   font-size: 12px;
   color: #333;
+  min-width: 0;
 }
 
 .hour-item {
@@ -379,15 +392,16 @@
   border-left: 3px solid;
   font-size: 11px;
   font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  min-width: 0;
 }
 
 @media (max-width: 1400px) {
   .timetable-header,
   .time-row {
-    grid-template-columns: 100px repeat(5, 1fr);
+    grid-template-columns: 100px repeat(5, minmax(0, 1fr));
   }
 
   .time-label {
