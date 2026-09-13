@@ -4,6 +4,16 @@ import { extraerSemestres } from './conflict-utils.js';
 
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
+/**
+ * Normaliza una fecha (Date o string "YYYY-MM-DD") a "YYYY-MM-DD" para
+ * comparar días sin depender de la zona horaria.
+ */
+function normalizarFecha(fecha) {
+  if (!fecha) return '';
+  if (fecha instanceof Date) return fecha.toISOString().substring(0, 10);
+  return String(fecha).substring(0, 10);
+}
+
 function tieneConflictoHorarioProtegidoPrueba(prueba) {
   try {
     const { tipo_prueba, fecha } = prueba;
@@ -62,7 +72,7 @@ async function reevaluarConflictosPruebasDashboard(dashboardId) {
         const prueba1 = pruebas[i];
         const prueba2 = pruebas[j];
 
-        if (prueba1.fecha.getTime() === prueba2.fecha.getTime() &&
+        if (normalizarFecha(prueba1.fecha) === normalizarFecha(prueba2.fecha) &&
             prueba1.tipo_prueba === prueba2.tipo_prueba) {
 
           if (prueba1.codigo === prueba2.codigo) {
@@ -94,7 +104,7 @@ async function reevaluarConflictosPruebasDashboard(dashboardId) {
         const prueba1 = pruebas[i];
         const prueba2 = pruebas[j];
 
-        if (prueba1.fecha.getTime() === prueba2.fecha.getTime() &&
+        if (normalizarFecha(prueba1.fecha) === normalizarFecha(prueba2.fecha) &&
             prueba1.tipo_prueba === prueba2.tipo_prueba) {
 
           const prof1Ids = [prueba1.profesor_1_id, prueba1.profesor_2_id].filter(Boolean);

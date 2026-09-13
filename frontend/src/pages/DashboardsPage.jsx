@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { dashboardService } from '../services/api';
+import { parseFechaLocal } from '../utils/filtros';
 import '../styles/Dashboards.css';
 
 export function DashboardsPage() {
@@ -160,7 +161,7 @@ export function DashboardsPage() {
                   </p>
                   {dashboard.fecha_inicio && dashboard.fecha_fin && (
                     <p className="dashboard-range">
-                      Rango: {new Date(dashboard.fecha_inicio).toLocaleDateString()} - {new Date(dashboard.fecha_fin).toLocaleDateString()}
+                      Rango: {parseFechaLocal(dashboard.fecha_inicio)?.toLocaleDateString()} - {parseFechaLocal(dashboard.fecha_fin)?.toLocaleDateString()}
                     </p>
                   )}
                   <div className="dashboard-actions">

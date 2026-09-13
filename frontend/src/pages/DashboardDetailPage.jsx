@@ -10,7 +10,7 @@ import {
 } from '../services/api';
 import { TimeTable } from '../components/TimeTable';
 import { CalendarView } from '../components/CalendarView';
-import { filtrarHorario } from '../utils/filtros';
+import { filtrarHorario, parseFechaLocal } from '../utils/filtros';
 import '../styles/DashboardDetail.css';
 
 export function DashboardDetailPage() {
@@ -62,6 +62,30 @@ export function DashboardDetailPage() {
   useEffect(() => {
     loadDashboard();
   }, [dashboardId, loadDashboard]);
+
+  // Cargar el catálogo de programables al abrir el dashboard, para que los
+  // sidebars y el calendario funcionen sin exigir "Cargar Datos".
+  useEffect(() => {
+    if (!dashboardId) return;
+    let cancelado = false;
+
+    const cargarCatalogos = async () => {
+      try {
+        const [respuesta, respuestaPruebas] = await Promise.all([
+          sheetsService.getHorariosProgramables(),
+          pruebasProgramablesService.obtenerPruebasProgramables()
+        ]);
+        if (cancelado) return;
+        setHorariosProgramables(respuesta.horarios || []);
+        setPruebasProgramables(respuestaPruebas.pruebas || []);
+      } catch (err) {
+        console.error('Error cargando catálogos:', err);
+      }
+    };
+
+    cargarCatalogos();
+    return () => { cancelado = true; };
+  }, [dashboardId]);
 
   const handleCargarDatos = async () => {
     try {
@@ -216,7 +240,7 @@ export function DashboardDetailPage() {
       if (eliminadas.length > 0) {
         msg += `\n\nSe eliminaron ${eliminadas.length} prueba(s) registrada(s) cuyo bloque ya no existe:`;
         eliminadas.forEach(e => {
-          const fechaStr = new Date(e.fecha).toLocaleDateString();
+          const fechaStr = parseFechaLocal(e.fecha)?.toLocaleDateString() || e.fecha;
           msg += `\n  • ${e.codigo}-${e.seccion} ${e.tipo_prueba} (${e.hora_inicio}-${e.hora_fin}) del ${fechaStr}`;
         });
       }
@@ -255,7 +279,7 @@ export function DashboardDetailPage() {
           <h1>{dashboard?.nombre}</h1>
           <p>Creado: {new Date(dashboard?.created_at).toLocaleDateString()}</p>
           {dashboard?.fecha_inicio && dashboard?.fecha_fin && (
-            <p className="date-range">Rango: {new Date(dashboard.fecha_inicio).toLocaleDateString()} - {new Date(dashboard.fecha_fin).toLocaleDateString()}</p>
+            <p className="date-range">Rango: {parseFechaLocal(dashboard.fecha_inicio)?.toLocaleDateString()} - {parseFechaLocal(dashboard.fecha_fin)?.toLocaleDateString()}</p>
           )}
         </div>
       </header>

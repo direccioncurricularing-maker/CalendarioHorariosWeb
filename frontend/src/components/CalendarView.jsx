@@ -2,9 +2,14 @@ import { useState, useMemo } from 'react';
 import { HORARIOS } from '../constants/horarios';
 import { pruebasRegistradasService } from '../services/api';
 import { getPostitStyle } from '../utils/colorUtils';
-import { filterForSemester } from '../utils/filtros';
+import { filterForSemester, parseFechaLocal } from '../utils/filtros';
 import { PruebasSidebar } from './PruebasSidebar';
 import '../styles/CalendarView.css';
+
+// Semana de lunes a domingo (getDay(): 0=Domingo .. 6=Sábado)
+const DIAS_SEMANA_CALENDARIO = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+const INICIALES_DIAS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+const indiceDiaSemana = (fecha) => (fecha.getDay() + 6) % 7;
 
 export function CalendarView({ 
   fechaInicio, 
@@ -24,10 +29,10 @@ export function CalendarView({
   const [modoVisualizacion, setModoVisualizacion] = useState('cascada');
   const [semestreActual, setSemestreActual] = useState(0);
 
-  const fechaInicioDate = useMemo(() => fechaInicio ? new Date(fechaInicio) : null, [fechaInicio]);
-  const fechaFinDate = useMemo(() => fechaFin ? new Date(fechaFin) : null, [fechaFin]);
+  const fechaInicioDate = useMemo(() => parseFechaLocal(fechaInicio), [fechaInicio]);
+  const fechaFinDate = useMemo(() => parseFechaLocal(fechaFin), [fechaFin]);
 
-  const [fechaActual, setFechaActual] = useState(() => fechaInicio ? new Date(fechaInicio) : new Date());
+  const [fechaActual, setFechaActual] = useState(() => parseFechaLocal(fechaInicio) || new Date());
 
   // Generar array de todos los meses en el rango
   const todosLosMeses = useMemo(() => {
@@ -65,7 +70,7 @@ export function CalendarView({
     const primerDia = new Date(year, month, 1);
     const ultimoDia = new Date(year, month + 1, 0);
     const diasEnMes = ultimoDia.getDate();
-    const primerDiaDelMes = primerDia.getDay();
+    const primerDiaDelMes = indiceDiaSemana(primerDia);
     const dias = [];
     for (let i = 0; i < primerDiaDelMes; i++) dias.push(null);
     for (let i = 1; i <= diasEnMes; i++) dias.push(new Date(year, month, i));
@@ -73,10 +78,11 @@ export function CalendarView({
   };
 
   // Obtener pruebas registradas para un día específico
-  // Usar formato local "YYYY-MM-DD" para evitar timezone issues con toISOString()
+  // Usar parseFechaLocal para evitar timezone issues con toISOString()
   const formatFechaLocal = (fecha) => {
     if (!fecha) return '';
-    const d = new Date(fecha);
+    const d = parseFechaLocal(fecha);
+    if (!d) return '';
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
@@ -141,7 +147,7 @@ export function CalendarView({
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
   ];
 
-  const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  const diasSemana = DIAS_SEMANA_CALENDARIO;
 
   // ── Filtro por semestre (misma lógica que TimeTable) ──
   function filterForSemesterLocal(semestreId) {
@@ -242,10 +248,10 @@ export function CalendarView({
               }
 
               const todasPruebasDelDia = getPruebasDelDia(fecha);
-              // Filtrar pruebas para este semestre
+              // Filtrar pruebas para este semestre. Si el catálogo aún no está
+              // cargado, usar los datos que ya vienen en la prueba registrada.
               const pruebasDelDia = todasPruebasDelDia.filter(pr => {
-                const prog = getPruebaProgramable(pr.prueba_programable_id);
-                if (!prog) return false;
+                const prog = getPruebaProgramable(pr.prueba_programable_id) || pr;
                 return semestreFilter(prog);
               });
 
@@ -339,7 +345,7 @@ export function CalendarView({
                   )}
                   <div className={`day-number ${estaFueraDeRango ? 'disabled' : ''}`}>{fecha.getDate()}</div>
                   <div className="day-name">
-                    {['D', 'L', 'M', 'X', 'J', 'V', 'S'][fecha.getDay()]}
+                    {INICIALES_DIAS[indiceDiaSemana(fecha)]}
                   </div>
                   {esFeriado && (
                     <div className="feriado-label">FERIADO</div>
@@ -347,7 +353,7 @@ export function CalendarView({
                   {estaEnRango && pruebasDelDia.length > 0 && (
                     <div className="pruebas-container">
                       {pruebasDelDia.map(prueba => {
-                        const prog = getPruebaProgramable(prueba.prueba_programable_id);
+                        const prog = getPruebaProgramable(prueba.prueba_programable_id) || prueba;
                         const tieneConflicto = Array.isArray(prueba.conflictos) && prueba.conflictos.length > 0;
                         const hasDayMismatch = Array.isArray(prueba.conflictos) && prueba.conflictos.includes(-2);
                         const hasProtectedSchedule = Array.isArray(prueba.conflictos) && prueba.conflictos.includes(-1);
@@ -455,7 +461,7 @@ export function CalendarView({
             <h2>{nombreMeses[fechaActual.getMonth()]} {fechaActual.getFullYear()}</h2>
             {fechaInicio && fechaFin && (
               <p className="date-range">
-                Rango: {new Date(fechaInicio).toLocaleDateString()} - {new Date(fechaFin).toLocaleDateString()}
+                Rango: {parseFechaLocal(fechaInicio)?.toLocaleDateString()} - {parseFechaLocal(fechaFin)?.toLocaleDateString()}
               </p>
             )}
           </div>

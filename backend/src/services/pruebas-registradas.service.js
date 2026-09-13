@@ -246,8 +246,9 @@ async function armarDiccionarioPruebasParaGoogleSheets(dashboardId) {
     const horaFin = formatTime(prueba.hora_fin);
     const horario = horaInicio && horaFin ? `${horaInicio}-${horaFin}` : null;
 
-    const fecha = new Date(prueba.fecha);
-    const fechaStr = fecha.toISOString().split('T')[0];
+    const fechaStr = typeof prueba.fecha === 'string'
+      ? prueba.fecha.substring(0, 10)
+      : new Date(prueba.fecha).toISOString().split('T')[0];
 
     diccionario[clave].push({
       fecha: fechaStr,

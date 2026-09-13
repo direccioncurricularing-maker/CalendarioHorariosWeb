@@ -2,6 +2,8 @@
  * Sistema de colores para post-its basado en semestres y especialidades
  */
 
+import { esPlanComun } from './filtros';
+
 // Definición de colores por semestre y especialidad
 const COLORES_PLAN_COMUN = {
   1: '#FFEB99', // Amarillo claro
@@ -165,11 +167,7 @@ export function getColoresPostit(especialidades_semestres, tipoHorario = null) {
   let especialidadesFiltradas = especialidades;
   if (tipoHorario) {
     if (tipoHorario === 'plan_comun') {
-      especialidadesFiltradas = especialidades.filter(
-        e => e.nombre === 'plan_comun' || 
-             e.nombre === 'Plan Común' || 
-             (e.nombre && e.nombre.toLowerCase && e.nombre.toLowerCase() === 'plan común')
-      );
+      especialidadesFiltradas = especialidades.filter(e => esPlanComun(e.nombre));
     } else {
       // Para otros horarios, buscar por la especialidad
       especialidadesFiltradas = especialidades.filter(e => {
@@ -190,10 +188,7 @@ export function getColoresPostit(especialidades_semestres, tipoHorario = null) {
     let color;
     
     // Verificar si es plan común (semestres 1-4)
-    if (nombre === 'plan_comun' || 
-        nombre === 'Plan Común' || 
-        (nombre && nombre.toLowerCase && nombre.toLowerCase() === 'plan común') ||
-        semestre <= 4) {
+    if (esPlanComun(nombre) || semestre <= 4) {
       color = getColorPlanComun(semestre);
     } else {
       // Es una especialidad

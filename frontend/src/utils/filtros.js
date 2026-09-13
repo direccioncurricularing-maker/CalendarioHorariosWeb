@@ -4,6 +4,44 @@
  */
 
 /**
+ * Normaliza el nombre de una especialidad para compararlo sin ambigüedades.
+ * El backend guarda las claves como "PLAN COMUN" / "PLAN_COMUN", por lo que
+ * deben coincidir con "Plan Común" o "plan_comun" provenientes de la UI.
+ */
+function normalizarNombreEspecialidad(valor) {
+  return String(valor ?? '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[\s_]+/g, '');
+}
+
+/**
+ * Determina si un nombre de especialidad corresponde a Plan Común,
+ * aceptando "PLAN COMUN", "PLAN_COMUN", "Plan Común" y "plan_comun".
+ */
+export function esPlanComun(nombre) {
+  return normalizarNombreEspecialidad(nombre) === 'PLANCOMUN';
+}
+
+/**
+ * Convierte una fecha DATE ("YYYY-MM-DD" o un ISO heredado) a un Date local.
+ * Evita que el día se corra por zona horaria al hacer new Date(string).
+ */
+export function parseFechaLocal(fecha) {
+  if (!fecha) return null;
+  if (typeof fecha === 'string') {
+    const soloFecha = fecha.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (soloFecha) {
+      return new Date(Number(soloFecha[1]), Number(soloFecha[2]) - 1, Number(soloFecha[3]));
+    }
+  }
+  const d = new Date(fecha);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/**
  * Limpia el número de semestre removiendo letras
  * Ej: "11e" -> 11, "9" -> 9
  */
@@ -100,9 +138,8 @@ export function filtrarHorario(horario, filtroEspecialidad = 'TODOS', filtroSeme
     if (semestreNum == null) continue;
 
     const cumpleEspecialidad = espVacia ||
-      nombreEsp === filtroEspecialidad ||
-      nombreEsp === 'Plan Común' ||
-      nombreEsp === 'plan_comun';
+      normalizarNombreEspecialidad(nombreEsp) === normalizarNombreEspecialidad(filtroEspecialidad) ||
+      esPlanComun(nombreEsp);
 
     const cumpleSemestre = semVacio ||
       filtroSemestre.includes(String(semestreNum));
@@ -135,8 +172,8 @@ export function filterForSemester(programable, semestreId) {
 
   if (semestreId === 'plan_comun') {
     return especialidades.some(e =>
-      e.nombre === 'Plan Común' ||
-      (e.nombre && e.nombre.toLowerCase && e.nombre.toLowerCase() === 'plan común')
+      esPlanComun(e.nombre) ||
+      (e.semestre != null && e.semestre <= 4)
     );
   }
 

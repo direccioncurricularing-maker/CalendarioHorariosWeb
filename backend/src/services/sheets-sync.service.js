@@ -442,7 +442,7 @@ export async function usarRespaldoDesdeHoja(dashboardId) {
 
 	return {
 		maestrosProcesados: maestrosData.length,
-		horariosProgramablesProcesados: horariosCreados.length,
+		horariosProgramablesProcesados: horariosCreados.creados ?? 0,
 		horasRestauradas,
 		pruebasRestauradas,
 		pruebasCalendarioCreadas: resultadoCalendario?.pruebasCreadas?.length || 0,

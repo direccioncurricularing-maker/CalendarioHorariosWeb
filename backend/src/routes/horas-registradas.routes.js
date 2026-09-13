@@ -117,6 +117,17 @@ router.post('/', async (req, res) => {
       return res.status(404).json({ error: 'Hora programable no encontrada' });
     }
 
+    // Un curso solo puede asignarse en los horarios/grupos que le corresponden
+    // según sus especialidades y semestres. El undo (esRestore) queda exento.
+    if (!esRestore && semestreId) {
+      const destinosNaturales = calcularHorariosDestino(progResult.rows[0].especialidades_semestres);
+      if (!destinosNaturales.includes(semestreId)) {
+        return res.status(400).json({
+          error: 'Este curso no pertenece al horario seleccionado'
+        });
+      }
+    }
+
     const existeMismoBloque = await pool.query(
       `SELECT id
        FROM horas_registradas
@@ -302,6 +313,29 @@ router.delete('/:id', async (req, res) => {
     const horaInicioActual = String(horaCompleta.hora_inicio).substring(0, 8);
     const horaFinActual = String(horaCompleta.hora_fin).substring(0, 8);
 
+    // Buscar las filas espejo antes de borrarlas, para poder limpiar las
+    // referencias de conflicto que otros post-its guardan hacia ellas.
+    const aEliminar = await pool.query(
+      `SELECT *
+       FROM horas_registradas
+       WHERE hora_programable_id = $1
+         AND dashboard_id = $2
+         AND dia_semana = $3
+         AND hora_inicio = $4::time
+         AND hora_fin = $5::time`,
+      [
+        horaCompleta.hora_programable_id,
+        horaCompleta.dashboard_id,
+        horaCompleta.dia_semana,
+        horaInicioActual,
+        horaFinActual,
+      ]
+    );
+
+    for (const row of aEliminar.rows) {
+      await limpiarConflictosDeItem(row.id);
+    }
+
     const eliminadas = await pool.query(
       `DELETE FROM horas_registradas
        WHERE hora_programable_id = $1
@@ -318,10 +352,6 @@ router.delete('/:id', async (req, res) => {
         horaFinActual,
       ]
     );
-
-    for (const row of eliminadas.rows) {
-      await limpiarConflictosDeItem(row.id);
-    }
 
     res.json({
       message: `${eliminadas.rows.length} hora(s) registrada(s) eliminada(s)`,

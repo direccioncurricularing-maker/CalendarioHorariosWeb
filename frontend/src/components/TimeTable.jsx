@@ -27,6 +27,7 @@ export function TimeTable({
   const [draggedDisponibilidad, setDraggedDisponibilidad] = useState(null);
   const [operando, setOperando] = useState(false);
   const [_undoVersion, setUndoVersion] = useState(0);
+  const [avisos, setAvisos] = useState([]);
 
   // Mapa de bloques: inicio -> rango completo
   const BLOQUES_MAP = {
@@ -34,6 +35,18 @@ export function TimeTable({
     "11:30": "11:30-12:20", "12:30": "12:30-13:20", "13:30": "13:30-14:20",
     "14:30": "14:30-15:20", "15:30": "15:30-16:20", "16:30": "16:30-17:20",
     "17:30": "17:30-18:20", "18:30": "18:30-19:20", "19:30": "19:30-20:20"
+  };
+
+  // Normaliza rangos "08:30-09:20" -> "8:30-9:20" para compararlos con BLOQUES_MAP
+  const normalizarRangoHorario = (rango) => {
+    if (!rango) return rango;
+    const [inicio, fin] = String(rango).split('-').map(p => p.trim());
+    if (!inicio || !fin) return rango;
+    const norm = (hora) => {
+      const [h, m] = hora.split(':');
+      return `${parseInt(h)}:${m}`;
+    };
+    return `${norm(inicio)}-${norm(fin)}`;
   };
 
   /**
@@ -320,7 +333,10 @@ export function TimeTable({
                 let cellDragClass = '';
                 if (draggedDisponibilidad && Object.keys(draggedDisponibilidad).length > 0) {
                   const diaDisp = draggedDisponibilidad[dia];
-                  const isAvailable = diaDisp && diaDisp.includes(bloqueCompleto);
+                  const diaDispNorm = Array.isArray(diaDisp)
+                    ? diaDisp.map(normalizarRangoHorario)
+                    : [];
+                  const isAvailable = diaDispNorm.includes(bloqueCompleto);
                   cellDragClass = isAvailable ? 'cell-available' : 'cell-unavailable';
                 }
 
@@ -344,12 +360,16 @@ export function TimeTable({
                       
                       if (data && data.type === 'placed') {
                         const { id: horaRegId, instanceId: _instanceId, semestreId, dia: oldDia, bloqueIndex: oldBloqueIndex } = data;
-                        if (semestreId !== semestre.id) return;
+                        if (semestreId !== semestre.id) {
+                          setAvisos(['Una hora solo puede moverse dentro de su mismo horario.']);
+                          return;
+                        }
 
                         setOperando(true);
                         const cmd = new MoverCommand(horasRegistradasService, horaRegId, oldDia, oldBloqueIndex, dia, index);
                         undoManager.execute(cmd)
                           .then(() => {
+                            setAvisos([]);
                             setUndoVersion(v => v + 1);
                             cargarHorasRegistradas();
                           })
@@ -364,12 +384,28 @@ export function TimeTable({
                       const ids = data.ids || (data.id ? [String(data.id)] : null);
                       if (!ids) return;
 
+                      const programasPorId = new Map(
+                        horariosProgramables.map(p => [String(p.id), p])
+                      );
+
                       const idsValidos = ids.filter(id => {
-                        const prog = horariosProgramables.find(h => String(h.id) === String(id));
-                        return prog && puedeAgregar(prog.id, prog.cantidad_horas);
+                        const prog = programasPorId.get(String(id));
+                        if (!prog) return false;
+                        // El curso solo puede ir a un horario al que pertenece
+                        if (!filterForSemester(prog, semestre.id)) return false;
+                        return puedeAgregar(prog.id, prog.cantidad_horas);
                       });
 
-                      if (idsValidos.length === 0) return;
+                      if (idsValidos.length === 0) {
+                        const hayFueraDeHorario = ids.some(id => {
+                          const prog = programasPorId.get(String(id));
+                          return prog && !filterForSemester(prog, semestre.id);
+                        });
+                        setAvisos(hayFueraDeHorario
+                          ? ['Este curso no pertenece a este horario. Solo puede asignarse en el horario que le corresponde según su especialidad y semestre.']
+                          : ['Este curso ya tiene todas sus horas asignadas en este horario.']);
+                        return;
+                      }
 
                       setOperando(true);
                       const paramsList = idsValidos.map(id => ({
@@ -382,6 +418,7 @@ export function TimeTable({
                       const cmd = new CrearCommand(horasRegistradasService, paramsList);
                       undoManager.execute(cmd)
                         .then(() => {
+                          setAvisos(cmd.warnings || []);
                           setUndoVersion(v => v + 1);
                           cargarHorasRegistradas();
                         })
@@ -433,6 +470,7 @@ export function TimeTable({
                               setDraggedDisponibilidad(prog.disponibilidad);
                             }
                           }}
+                          onDragEnd={() => setDraggedDisponibilidad(null)}
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="postit-content">
@@ -443,15 +481,41 @@ export function TimeTable({
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setOperando(true);
-                                  const cmd = new EliminarCommand(horasRegistradasService, [{
-                                    id: pi.id,
-                                    horaProgramableId: pi.hora_programable_id,
-                                    dashboardId,
-                                    dia: pi.dia,
-                                    bloqueIndex: pi.bloqueIndex,
-                                    semestreId: semestre.id,
-                                    horario: semestre.id
-                                  }]);
+
+                                  // Recolectar todas las copias espejo (mismo curso, día y bloque
+                                  // en otros horarios) para poder restaurarlas con el undo.
+                                  const espejos = [];
+                                  const vistos = new Set();
+                                  Object.entries(placedItems).forEach(([trackId, items]) => {
+                                    items.forEach(item => {
+                                      if (item.hora_programable_id !== pi.hora_programable_id) return;
+                                      if (item.dia !== pi.dia || item.bloqueIndex !== pi.bloqueIndex) return;
+                                      const clave = `${trackId}|${item.dia}|${item.bloqueIndex}`;
+                                      if (vistos.has(clave)) return;
+                                      vistos.add(clave);
+                                      espejos.push({
+                                        horaProgramableId: item.hora_programable_id,
+                                        dashboardId,
+                                        dia: item.dia,
+                                        bloqueIndex: item.bloqueIndex,
+                                        horario: trackId
+                                      });
+                                    });
+                                  });
+
+                                  const cmd = new EliminarCommand(
+                                    horasRegistradasService,
+                                    [{
+                                      id: pi.id,
+                                      horaProgramableId: pi.hora_programable_id,
+                                      dashboardId,
+                                      dia: pi.dia,
+                                      bloqueIndex: pi.bloqueIndex,
+                                      semestreId: semestre.id,
+                                      horario: semestre.id
+                                    }],
+                                    espejos
+                                  );
                                   undoManager.execute(cmd)
                                     .then(() => {
                                       setUndoVersion(v => v + 1);
@@ -548,6 +612,20 @@ export function TimeTable({
           </div>
         )}
       </div>
+
+      {avisos.length > 0 && (
+        <div className="avisos-panel">
+          <div className="avisos-header">
+            <strong>Avisos</strong>
+            <button className="avisos-close" onClick={() => setAvisos([])} title="Cerrar avisos">✕</button>
+          </div>
+          <ul className="avisos-list">
+            {avisos.map((aviso, idx) => (
+              <li key={idx}>{aviso}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="color-legend">
         <span className="legend-label">Colores:</span>

@@ -78,7 +78,7 @@ router.post("/load-maestros", async (req, res) => {
     }
 
     // Procesar y crear horarios
-    const horariosCreados = await procesarMaestrosYCrearHorarios(maestrosData);
+    const resultadoMaestros = await procesarMaestrosYCrearHorarios(maestrosData);
 
     // Re-evaluar conflictos de todos los dashboards
     const dashboardsResult = await pool.query(`SELECT id FROM dashboards`);
@@ -90,8 +90,8 @@ router.post("/load-maestros", async (req, res) => {
 
     res.json({
       ok: true,
-      mensaje: `Se cargaron ${horariosCreados.length} horarios programables`,
-      horariosCreados,
+      mensaje: `Se procesaron ${resultadoMaestros.creados ?? 0} horarios programables`,
+      horariosCreados: resultadoMaestros,
     });
   } catch (err) {
     console.error("Error en load-maestros:", err);
