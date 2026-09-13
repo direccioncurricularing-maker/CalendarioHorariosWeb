@@ -1,0 +1,13 @@
+# Normalizar finales de línea: trabajar con LF en el repositorio
+# y permitir checkouts consistentes en Windows/Linux/WSL.
+* text=auto eol=lf
+
+# Binarios (no tocar)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
