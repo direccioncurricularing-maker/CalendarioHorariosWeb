@@ -3,7 +3,7 @@ import pool from "../db/pool.js";
 export async function crearPruebaProgramable(
   codigo, seccion, tipoPrueba, especialidades,
   profesor1Id, profesor2Id, titulo, bloquesHorario,
-  tieneExamen, cantidadEvaluaciones, salaEspecial
+  tieneExamen, cantidadEvaluaciones, salaEspecial, periodo
 ) {
   if (tipoPrueba === 'EXAMEN' && !tieneExamen) {
     return null;
@@ -13,9 +13,9 @@ export async function crearPruebaProgramable(
     `INSERT INTO pruebas_programables
      (codigo, seccion, tipo_prueba, especialidades_semestres,
       profesor_1_id, profesor_2_id, titulo, bloques_horario,
-      tiene_examen, cantidad_evaluaciones, sala_especial)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-     ON CONFLICT (codigo, seccion, tipo_prueba)
+      tiene_examen, cantidad_evaluaciones, sala_especial, periodo, vigente)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,TRUE)
+     ON CONFLICT (periodo, codigo, seccion, tipo_prueba)
      DO UPDATE SET
        especialidades_semestres = EXCLUDED.especialidades_semestres,
        profesor_1_id = EXCLUDED.profesor_1_id,
@@ -25,6 +25,7 @@ export async function crearPruebaProgramable(
        tiene_examen = EXCLUDED.tiene_examen,
        cantidad_evaluaciones = EXCLUDED.cantidad_evaluaciones,
        sala_especial = EXCLUDED.sala_especial,
+       vigente = TRUE,
        updated_at = NOW()
      RETURNING *`,
     [
@@ -34,15 +35,28 @@ export async function crearPruebaProgramable(
       titulo || `${codigo} - ${tipoPrueba}`,
       JSON.stringify(bloquesHorario || []),
       tieneExamen, cantidadEvaluaciones, salaEspecial,
+      periodo,
     ]
   );
 
   return result.rows[0];
 }
 
-export async function obtenerPruebasProgramables() {
+export async function obtenerPruebasProgramables(periodo = null) {
+  if (periodo) {
+    const result = await pool.query(
+      `SELECT * FROM pruebas_programables
+       WHERE periodo = $1 AND vigente = TRUE
+       ORDER BY codigo, seccion, tipo_prueba`,
+      [periodo]
+    );
+    return result.rows;
+  }
+
   const result = await pool.query(
-    `SELECT * FROM pruebas_programables ORDER BY codigo, seccion, tipo_prueba`
+    `SELECT * FROM pruebas_programables
+     WHERE vigente = TRUE
+     ORDER BY codigo, seccion, tipo_prueba`
   );
   return result.rows;
 }
@@ -60,7 +74,11 @@ export async function obtenerPruebasPorDashboard(dashboardId) {
   return result.rows;
 }
 
-export async function limpiarPruebasProgramables() {
+export async function limpiarPruebasProgramables(periodo = null) {
+  if (periodo) {
+    await pool.query(`DELETE FROM pruebas_programables WHERE periodo = $1`, [periodo]);
+    return;
+  }
   await pool.query(`DELETE FROM pruebas_programables`);
 }
 
@@ -81,6 +99,15 @@ function timeToMinutes(timeStr) {
 
 export async function actualizarCalendarioPruebas(dashboardId) {
   try {
+    const dashResult = await pool.query(
+      `SELECT periodo FROM dashboards WHERE id = $1`,
+      [dashboardId]
+    );
+    const periodo = dashResult.rows[0]?.periodo;
+    if (!periodo) {
+      throw new Error('Dashboard no encontrado');
+    }
+
     const horasResult = await pool.query(
       `SELECT hr.*, hp.codigo, hp.seccion, hp.titulo, hp.tipo_hora,
               hp.especialidades_semestres, hp.profesor_1_id, hp.profesor_2_id
@@ -165,8 +192,9 @@ export async function actualizarCalendarioPruebas(dashboardId) {
            MAX(CASE WHEN tipo_prueba = 'TARDE' THEN sala_especial END) as sala_pruebas,
            MAX(CASE WHEN tipo_prueba = 'EXAMEN' THEN sala_especial END) as sala_examen
          FROM pruebas_programables
-         WHERE codigo = $1 AND seccion = $2 AND tipo_prueba IN ('EXAMEN', 'TARDE')`,
-        [grupo.codigo, grupo.seccion]
+         WHERE codigo = $1 AND seccion = $2 AND tipo_prueba IN ('EXAMEN', 'TARDE')
+           AND periodo = $3`,
+        [grupo.codigo, grupo.seccion, periodo]
       );
       const tieneExamen = metaResult.rows[0]?.tiene_examen ?? true;
       const cantidadEvaluaciones = metaResult.rows[0]?.cantidad_evaluaciones ?? null;
@@ -187,7 +215,8 @@ export async function actualizarCalendarioPruebas(dashboardId) {
         bloques,
         tieneExamen,
         cantidadEvaluaciones,
-        salaEspecialPruebas
+        salaEspecialPruebas,
+        periodo
       );
 
       pruebasCreadas.push(prueba);
@@ -198,7 +227,9 @@ export async function actualizarCalendarioPruebas(dashboardId) {
     const todasPruebasCalendario = await pool.query(
       `SELECT pp.id, pp.codigo, pp.seccion, pp.tipo_prueba
        FROM pruebas_programables pp
-       WHERE pp.tipo_prueba IN ('CLASE', 'AYUDANTIA', 'LAB/TALLER')`
+       WHERE pp.tipo_prueba IN ('CLASE', 'AYUDANTIA', 'LAB/TALLER')
+         AND pp.periodo = $1`,
+      [periodo]
     );
 
     for (const pp of todasPruebasCalendario.rows) {

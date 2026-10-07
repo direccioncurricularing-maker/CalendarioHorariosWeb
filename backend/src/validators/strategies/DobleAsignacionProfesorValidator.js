@@ -5,7 +5,7 @@ import { normalizarHora } from '../../utils/horario-utils.js';
 export default {
   nombre: 'doble_asignacion_profesor',
 
-  async validar({ horaProgramableId, dia, horaInicio }) {
+  async validar({ horaProgramableId, dashboardId, dia, horaInicio }) {
     try {
       const progResult = await pool.query(
         `SELECT hp.profesor_1_id, hp.profesor_2_id, hp.codigo, hp.seccion, hp.titulo, hp.tipo_hora,
@@ -50,8 +50,9 @@ export default {
          LEFT JOIN profesores p2 ON hp.profesor_2_id = p2.id
          WHERE hr.dia_semana = $1
          AND hr.hora_inicio = $2
-         AND (hp.profesor_1_id = ANY($3) OR hp.profesor_2_id = ANY($3))`,
-        [dia, horaInicio, profesorIds]
+         AND (hp.profesor_1_id = ANY($3) OR hp.profesor_2_id = ANY($3))
+         AND hr.dashboard_id = $4`,
+        [dia, horaInicio, profesorIds, dashboardId]
       );
 
       if (conflictoResult.rows.length === 0) {

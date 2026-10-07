@@ -1,5 +1,6 @@
 import express from 'express';
 import  pool  from '../db/pool.js';
+import { obtenerPeriodoActual } from '../utils/periodo-utils.js';
 
 const router = express.Router();
 
@@ -13,11 +14,15 @@ router.get('/', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, nombre, usuario_id, fecha_inicio, fecha_fin, feriados, created_at, updated_at FROM dashboards WHERE usuario_id = $1 ORDER BY created_at DESC',
+      'SELECT id, nombre, usuario_id, fecha_inicio, fecha_fin, periodo, feriados, created_at, updated_at FROM dashboards WHERE usuario_id = $1 ORDER BY created_at DESC',
       [usuario_id]
     );
 
-    res.json(result.rows);
+    const periodoActual = obtenerPeriodoActual();
+    res.json(result.rows.map(d => ({
+      ...d,
+      periodo_actual: d.periodo === periodoActual,
+    })));
   } catch (error) {
     console.error('Error obteniendo dashboards:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -30,7 +35,7 @@ router.get('/:id', async (req, res) => {
     const { id } = req.params;
 
     const result = await pool.query(
-      'SELECT id, nombre, usuario_id, fecha_inicio, fecha_fin, feriados, created_at, updated_at FROM dashboards WHERE id = $1',
+      'SELECT id, nombre, usuario_id, fecha_inicio, fecha_fin, periodo, feriados, created_at, updated_at FROM dashboards WHERE id = $1',
       [id]
     );
 
@@ -38,7 +43,11 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Dashboard no encontrado' });
     }
 
-    res.json(result.rows[0]);
+    const dashboard = result.rows[0];
+    res.json({
+      ...dashboard,
+      periodo_actual: dashboard.periodo === obtenerPeriodoActual(),
+    });
   } catch (error) {
     console.error('Error obteniendo dashboard:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -65,13 +74,13 @@ router.post('/', async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO dashboards (nombre, usuario_id, fecha_inicio, fecha_fin)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, nombre, usuario_id, fecha_inicio, fecha_fin, feriados, created_at, updated_at`,
-      [nombre, usuario_id, fecha_inicio || null, fecha_fin || null]
+      `INSERT INTO dashboards (nombre, usuario_id, fecha_inicio, fecha_fin, periodo)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, nombre, usuario_id, fecha_inicio, fecha_fin, periodo, feriados, created_at, updated_at`,
+      [nombre, usuario_id, fecha_inicio || null, fecha_fin || null, obtenerPeriodoActual()]
     );
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({ ...result.rows[0], periodo_actual: true });
   } catch (error) {
     console.error('Error creando dashboard:', error);
     res.status(500).json({ error: 'Error interno del servidor' });

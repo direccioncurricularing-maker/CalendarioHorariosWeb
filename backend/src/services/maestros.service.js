@@ -1,4 +1,5 @@
 import { obtenerOCrearProfesor } from "./profesores.service.js";
+import pool from "../db/pool.js";
 import {
   esMandante, buscarColumna,
   limpiarSala, extraerEspecialidades, extraerDisponibilidad
@@ -38,9 +39,36 @@ const BLOQUES_TARDE = [
   { inicio: "19:30", fin: "21:20" }
 ];
 
-export async function procesarMaestrosYCrearHorarios(maestrosData) {
-  console.log(`[Maestros] Procesando ${maestrosData.length} cursos...`);
-  const contador = { creados: 0, actualizados: 0, errores: 0, omitidos: 0 };
+export async function procesarMaestrosYCrearHorarios(maestrosData, periodo) {
+  console.log(`[Maestros] Procesando ${maestrosData.length} cursos para el período "${periodo}"...`);
+  const contador = { creados: 0, actualizados: 0, errores: 0, omitidos: 0, desactivados: 0 };
+
+  const activosHoras = new Set();
+  const activosPruebas = new Set();
+
+  const previosHoras = (await pool.query(
+    `SELECT codigo, seccion, tipo_hora FROM horas_programables
+     WHERE periodo = $1 AND vigente = TRUE`,
+    [periodo]
+  )).rows;
+
+  const previasPruebas = (await pool.query(
+    `SELECT codigo, seccion, tipo_prueba FROM pruebas_programables
+     WHERE periodo = $1 AND vigente = TRUE AND tipo_prueba IN ('EXAMEN', 'TARDE')`,
+    [periodo]
+  )).rows;
+
+  // Lo que no venga en esta carga se conserva (por las horas ya registradas)
+  // pero se oculta de los sidebars marcándolo como no vigente.
+  await pool.query(
+    `UPDATE horas_programables SET vigente = FALSE WHERE periodo = $1`,
+    [periodo]
+  );
+  await pool.query(
+    `UPDATE pruebas_programables SET vigente = FALSE
+     WHERE periodo = $1 AND tipo_prueba IN ('EXAMEN', 'TARDE')`,
+    [periodo]
+  );
 
   for (const curso of maestrosData) {
     try {
@@ -90,9 +118,10 @@ export async function procesarMaestrosYCrearHorarios(maestrosData) {
         await crearHorarioProgramable(
           codigo, seccion, tipoHora, cantidadHoras,
           especialidades, prof1?.id || null, prof2?.id || null, titulo,
-          disponibilidad, salaEspecial, distribucionHorario
+          disponibilidad, salaEspecial, distribucionHorario, periodo
         );
 
+        activosHoras.add(`${codigo}|${seccion}|${tipoHora}`);
         contador.creados++;
       }
 
@@ -103,24 +132,39 @@ export async function procesarMaestrosYCrearHorarios(maestrosData) {
       const cantidadEvaluaciones = cantEvalStr != null ? parseInt(String(cantEvalStr).trim(), 10) : 0;
 
       if (tieneExamen) {
-        await crearPruebaProgramable(
+        const pruebaExamen = await crearPruebaProgramable(
           codigo, seccion, "EXAMEN",
           especialidades, prof1?.id || null, prof2?.id || null,
-          titulo, BLOQUES_EXAMEN, tieneExamen, cantidadEvaluaciones, null
+          titulo, BLOQUES_EXAMEN, tieneExamen, cantidadEvaluaciones, null, periodo
         );
+        if (pruebaExamen) activosPruebas.add(`${codigo}|${seccion}|EXAMEN`);
       }
 
-      await crearPruebaProgramable(
+      const pruebaTarde = await crearPruebaProgramable(
         codigo, seccion, "TARDE",
         especialidades, prof1?.id || null, prof2?.id || null,
-        titulo, BLOQUES_TARDE, false, 0, null
+        titulo, BLOQUES_TARDE, false, 0, null, periodo
       );
+      if (pruebaTarde) activosPruebas.add(`${codigo}|${seccion}|TARDE`);
 
     } catch (error) {
       console.error(`[Maestros] Error procesando curso:`, error);
       contador.errores++;
     }
   }
+
+  const desactivadosHoras = previosHoras.filter(
+    p => !activosHoras.has(`${p.codigo}|${p.seccion}|${p.tipo_hora}`)
+  );
+  const desactivadasPruebas = previasPruebas.filter(
+    p => !activosPruebas.has(`${p.codigo}|${p.seccion}|${p.tipo_prueba}`)
+  );
+
+  contador.desactivados = desactivadosHoras.length + desactivadasPruebas.length;
+  contador.detalleDesactivados = [
+    ...desactivadosHoras.map(p => `${p.codigo}-${p.seccion} ${p.tipo_hora}`),
+    ...desactivadasPruebas.map(p => `${p.codigo}-${p.seccion} ${p.tipo_prueba}`),
+  ];
 
   console.log(`[Maestros] Procesamiento completado. ${JSON.stringify(contador)}`);
   return contador;

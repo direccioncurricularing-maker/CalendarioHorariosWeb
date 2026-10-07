@@ -394,6 +394,15 @@ export async function usarRespaldoDesdeHoja(dashboardId) {
 		throw new Error("dashboardId inválido");
 	}
 
+	const dashResult = await pool.query(
+		`SELECT periodo FROM dashboards WHERE id = $1`,
+		[id]
+	);
+	if (dashResult.rows.length === 0) {
+		throw new Error("Dashboard no encontrado");
+	}
+	const periodo = dashResult.rows[0].periodo;
+
 	// 1) Leer MAESTRO desde App Script
 	const maestrosData = await obtenerMaestrosDesdeAppScript();
 
@@ -402,12 +411,14 @@ export async function usarRespaldoDesdeHoja(dashboardId) {
 	const rawPruebas = extraerEntradasPruebasDesdeMaestro(maestrosData);
 
 	// 3) Cargar maestros como flujo actual (actualiza/crea programables)
-	const horariosCreados = await procesarMaestrosYCrearHorarios(maestrosData);
+	const horariosCreados = await procesarMaestrosYCrearHorarios(maestrosData, periodo);
 
 	// 4) Preparar mapeo para horas
 	const horasProgramablesResult = await pool.query(
 		`SELECT id, codigo, seccion, tipo_hora, especialidades_semestres
-		 FROM horas_programables`
+		 FROM horas_programables
+		 WHERE periodo = $1`,
+		[periodo]
 	);
 	const indiceHoras = construirIndiceHorasProgramables(horasProgramablesResult.rows);
 	const { registros: registrosHoras, advertencias: advertenciasHoras } = mapearHorasARegistros(rawHoras, indiceHoras);
@@ -425,7 +436,9 @@ export async function usarRespaldoDesdeHoja(dashboardId) {
 	// 7) Preparar mapeo para pruebas (después de actualizar calendario)
 	const pruebasProgramablesResult = await pool.query(
 		`SELECT id, codigo, seccion, tipo_prueba
-		 FROM pruebas_programables`
+		 FROM pruebas_programables
+		 WHERE periodo = $1`,
+		[periodo]
 	);
 	const indicePruebas = construirIndicePruebasProgramables(pruebasProgramablesResult.rows);
 	const { registros: registrosPruebas, advertencias: advertenciasPruebas } = mapearPruebasARegistros(
@@ -437,8 +450,8 @@ export async function usarRespaldoDesdeHoja(dashboardId) {
 	const pruebasRestauradas = await insertarPruebasRegistros(id, registrosPruebas);
 	const conflictosPruebas = await reevaluarConflictosPruebasDashboard(id);
 
-	const horarios = await obtenerHorariosProgramables();
-	const pruebas = await obtenerPruebasProgramables();
+	const horarios = await obtenerHorariosProgramables(periodo);
+	const pruebas = await obtenerPruebasProgramables(periodo);
 
 	return {
 		maestrosProcesados: maestrosData.length,

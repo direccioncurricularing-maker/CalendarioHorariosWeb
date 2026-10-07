@@ -164,6 +164,11 @@ export function DashboardsPage() {
                       Rango: {parseFechaLocal(dashboard.fecha_inicio)?.toLocaleDateString()} - {parseFechaLocal(dashboard.fecha_fin)?.toLocaleDateString()}
                     </p>
                   )}
+                  {dashboard.periodo && (
+                    <p className="dashboard-range" style={{ color: dashboard.periodo_actual === false ? '#b26500' : '#2e7d32' }}>
+                      Período: {dashboard.periodo}
+                    </p>
+                  )}
                   <div className="dashboard-actions">
                     <button 
                       onClick={() => handleDashboardClick(dashboard.id)} 

@@ -43,12 +43,16 @@ export const sheetsService = {
     return res.json();
   },
 
-  async loadMaestros() {
+  async loadMaestros(dashboardId) {
     const res = await fetch(`${API_URL}/sheets/load-maestros`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dashboardId })
     });
-    if (!res.ok) throw new Error('Error cargando maestros');
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || 'Error cargando maestros');
+    }
     return res.json();
   },
 
@@ -64,8 +68,9 @@ export const sheetsService = {
     return res.json();
   },
 
-  async getHorariosProgramables() {
-    const res = await fetch(`${API_URL}/sheets/horas-programables`);
+  async getHorariosProgramables(periodo) {
+    const query = periodo ? `?periodo=${encodeURIComponent(periodo)}` : '';
+    const res = await fetch(`${API_URL}/sheets/horas-programables${query}`);
     if (!res.ok) throw new Error('Error obteniendo horarios programables');
     return res.json();
   },
@@ -217,8 +222,9 @@ export const horasRegistradasService = {
 
 // ==================== PRUEBAS PROGRAMABLES ====================
 export const pruebasProgramablesService = {
-  async obtenerPruebasProgramables() {
-    const res = await fetch(`${API_URL}/sheets/pruebas-programables`);
+  async obtenerPruebasProgramables(periodo) {
+    const query = periodo ? `?periodo=${encodeURIComponent(periodo)}` : '';
+    const res = await fetch(`${API_URL}/sheets/pruebas-programables${query}`);
     if (!res.ok) throw new Error('Error obteniendo pruebas programables');
     return res.json();
   },

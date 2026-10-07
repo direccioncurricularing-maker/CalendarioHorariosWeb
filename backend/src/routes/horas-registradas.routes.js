@@ -5,6 +5,7 @@ import { ejecutarValidaciones } from '../validators/hora-registrada.validators.j
 import { reevaluarConflictosDashboard, reevaluarConflictosNuevoItem, reevaluarConflictosItemMovido, limpiarConflictosDeItem } from '../services/conflict-detector.service.js';
 import { BLOQUES, DIAS_NUMERO } from '../constants/horarios.js';
 import { calcularHorariosDestino } from '../utils/horario-utils.js';
+import { obtenerPeriodoActual } from '../utils/periodo-utils.js';
 import pool from '../db/pool.js';
 
 
@@ -107,7 +108,7 @@ router.post('/', async (req, res) => {
     }
 
     const progResult = await pool.query(
-      `SELECT id, especialidades_semestres, codigo, seccion, tipo_hora
+      `SELECT id, especialidades_semestres, codigo, seccion, tipo_hora, periodo
        FROM horas_programables
        WHERE id = $1`,
       [horaProgramableId]
@@ -115,6 +116,22 @@ router.post('/', async (req, res) => {
 
     if (progResult.rows.length === 0) {
       return res.status(404).json({ error: 'Hora programable no encontrada' });
+    }
+
+    // El curso debe pertenecer al mismo período del dashboard
+    const dashboardResult = await pool.query(
+      `SELECT periodo FROM dashboards WHERE id = $1`,
+      [dashboardId]
+    );
+
+    if (dashboardResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Dashboard no encontrado' });
+    }
+
+    if (progResult.rows[0].periodo !== dashboardResult.rows[0].periodo) {
+      return res.status(400).json({
+        error: 'El curso no pertenece al período de este dashboard'
+      });
     }
 
     // Un curso solo puede asignarse en los horarios/grupos que le corresponden
@@ -387,7 +404,20 @@ router.delete('/dashboard/:dashboardId', async (req, res) => {
 router.post('/enviar-sheets/:dashboardId', async (req, res) => {
   try {
     const { dashboardId } = req.params;
-    
+
+    const dashResult = await pool.query(
+      `SELECT periodo FROM dashboards WHERE id = $1`,
+      [dashboardId]
+    );
+    if (dashResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Dashboard no encontrado' });
+    }
+    if (dashResult.rows[0].periodo !== obtenerPeriodoActual()) {
+      return res.status(400).json({
+        error: `Este dashboard pertenece al período "${dashResult.rows[0].periodo}". La exportación solo está disponible para el período actual.`
+      });
+    }
+
     // Obtener el diccionario preparado
     const diccionario = await horasRegistradasService.armarDiccionarioParaGoogleSheets(dashboardId);
     

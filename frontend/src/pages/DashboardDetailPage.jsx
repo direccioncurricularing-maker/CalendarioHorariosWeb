@@ -66,14 +66,14 @@ export function DashboardDetailPage() {
   // Cargar el catálogo de programables al abrir el dashboard, para que los
   // sidebars y el calendario funcionen sin exigir "Cargar Datos".
   useEffect(() => {
-    if (!dashboardId) return;
+    if (!dashboard?.periodo) return;
     let cancelado = false;
 
     const cargarCatalogos = async () => {
       try {
         const [respuesta, respuestaPruebas] = await Promise.all([
-          sheetsService.getHorariosProgramables(),
-          pruebasProgramablesService.obtenerPruebasProgramables()
+          sheetsService.getHorariosProgramables(dashboard.periodo),
+          pruebasProgramablesService.obtenerPruebasProgramables(dashboard.periodo)
         ]);
         if (cancelado) return;
         setHorariosProgramables(respuesta.horarios || []);
@@ -85,23 +85,25 @@ export function DashboardDetailPage() {
 
     cargarCatalogos();
     return () => { cancelado = true; };
-  }, [dashboardId]);
+  }, [dashboard?.periodo]);
+
+  const esPeriodoActual = dashboard?.periodo_actual !== false;
 
   const handleCargarDatos = async () => {
     try {
       setCargandoDatos(true);
       setError('');
       
-      // Cargar maestros y procesar en el backend
-      await sheetsService.loadMaestros();
+      // Cargar maestros y procesar en el backend (solo para el período del dashboard)
+      await sheetsService.loadMaestros(dashboardId);
       
       // Obtener los horarios programables creados
-      const respuesta = await sheetsService.getHorariosProgramables();
+      const respuesta = await sheetsService.getHorariosProgramables(dashboard?.periodo);
       setHorariosProgramables(respuesta.horarios);
       setMostrarHorarios(true);
       
       // Obtener las pruebas programables creadas
-      const respuestaPruebas = await pruebasProgramablesService.obtenerPruebasProgramables();
+      const respuestaPruebas = await pruebasProgramablesService.obtenerPruebasProgramables(dashboard?.periodo);
       setPruebasProgramables(respuestaPruebas.pruebas || []);
       
       // Incrementar refreshKey para que TimeTable recargue horas registradas con conflictos actualizados
@@ -281,6 +283,12 @@ export function DashboardDetailPage() {
           {dashboard?.fecha_inicio && dashboard?.fecha_fin && (
             <p className="date-range">Rango: {parseFechaLocal(dashboard.fecha_inicio)?.toLocaleDateString()} - {parseFechaLocal(dashboard.fecha_fin)?.toLocaleDateString()}</p>
           )}
+          {dashboard?.periodo && (
+            <p style={{ margin: '4px 0', color: esPeriodoActual ? '#2e7d32' : '#b26500' }}>
+              Período: <strong>{dashboard.periodo}</strong>
+              {!esPeriodoActual && ' — dashboard de un período anterior: puedes ver y editar tu horario, pero no cargar ni exportar el maestro.'}
+            </p>
+          )}
         </div>
       </header>
 
@@ -303,14 +311,16 @@ export function DashboardDetailPage() {
         <button 
           className="load-data-btn" 
           onClick={handleCargarDatos}
-          disabled={cargandoDatos}
+          disabled={cargandoDatos || !esPeriodoActual}
+          title={!esPeriodoActual ? 'Solo disponible para el período actual' : undefined}
         >
           {cargandoDatos ? 'Cargando datos...' : 'Cargar Datos'}
         </button>
         <button 
           className="use-backup-btn" 
           onClick={handleUsarRespaldo}
-          disabled={cargandoDatos}
+          disabled={cargandoDatos || !esPeriodoActual}
+          title={!esPeriodoActual ? 'Solo disponible para el período actual' : undefined}
         >
           {cargandoDatos ? 'Procesando...' : 'Usar Respaldo'}
         </button>
@@ -319,7 +329,8 @@ export function DashboardDetailPage() {
             <button 
               className="send-data-btn" 
               onClick={handleEnviarDatos}
-              disabled={cargandoDatos}
+              disabled={cargandoDatos || !esPeriodoActual}
+              title={!esPeriodoActual ? 'Solo disponible para el período actual' : undefined}
             >
               {cargandoDatos ? 'Procesando...' : 'Enviar Datos'}
             </button>
@@ -334,7 +345,8 @@ export function DashboardDetailPage() {
               <button 
                 className="send-pruebas-btn" 
                 onClick={handleEnviarPruebas}
-                disabled={cargandoDatos}
+                disabled={cargandoDatos || !esPeriodoActual}
+                title={!esPeriodoActual ? 'Solo disponible para el período actual' : undefined}
               >
                 {cargandoDatos ? 'Enviando...' : 'Enviar Pruebas'}
               </button>

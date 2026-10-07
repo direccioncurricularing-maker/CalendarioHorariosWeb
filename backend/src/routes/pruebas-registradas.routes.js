@@ -3,6 +3,7 @@ import  pool  from '../db/pool.js';
 import * as pruebasRegistradasService from '../services/pruebas-registradas.service.js';
 import * as appScriptService from '../services/appscript.service.js';
 import { reevaluarConflictosPruebasDashboard } from '../services/conflict-detector-pruebas.service.js';
+import { obtenerPeriodoActual } from '../utils/periodo-utils.js';
 
 const router = express.Router();
 
@@ -63,11 +64,27 @@ router.post('/', async (req, res) => {
     // Validar cantidad_evaluaciones: contar pruebas registradas del mismo curso (codigo+seccion)
     // excluyendo EXAMEN del conteo
     const ppResult = await pool.query(
-      'SELECT codigo, seccion, tipo_prueba, cantidad_evaluaciones FROM pruebas_programables WHERE id = $1',
+      'SELECT codigo, seccion, tipo_prueba, cantidad_evaluaciones, periodo FROM pruebas_programables WHERE id = $1',
       [pruebaProgramableId]
     );
 
     if (ppResult.rows.length > 0) {
+      // La prueba debe pertenecer al mismo período del dashboard
+      const dashResult = await pool.query(
+        'SELECT periodo FROM dashboards WHERE id = $1',
+        [dashboardId]
+      );
+
+      if (dashResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Dashboard no encontrado' });
+      }
+
+      if (ppResult.rows[0].periodo !== dashResult.rows[0].periodo) {
+        return res.status(400).json({
+          error: 'La prueba no pertenece al período de este dashboard'
+        });
+      }
+
       const pp = ppResult.rows[0];
       const tipoPrueba = (pp.tipo_prueba || '').toUpperCase();
       
@@ -196,6 +213,19 @@ router.delete('/dashboard/:dashboardId', async (req, res) => {
 router.post('/enviar-sheets/:dashboardId', async (req, res) => {
   try {
     const { dashboardId } = req.params;
+
+    const dashResult = await pool.query(
+      `SELECT periodo FROM dashboards WHERE id = $1`,
+      [dashboardId]
+    );
+    if (dashResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Dashboard no encontrado' });
+    }
+    if (dashResult.rows[0].periodo !== obtenerPeriodoActual()) {
+      return res.status(400).json({
+        error: `Este dashboard pertenece al período "${dashResult.rows[0].periodo}". La exportación solo está disponible para el período actual.`
+      });
+    }
 
     const diccionario = await pruebasRegistradasService.armarDiccionarioPruebasParaGoogleSheets(dashboardId);
     const resultado = await appScriptService.enviarPruebasASheets(diccionario);

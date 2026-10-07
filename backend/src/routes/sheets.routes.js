@@ -12,6 +12,7 @@ import { reevaluarConflictosDashboard } from "../services/conflict-detector.serv
 import { reevaluarConflictosPruebasDashboard } from "../services/conflict-detector-pruebas.service.js";
 import  pool  from "../db/pool.js";
 import { usarRespaldoDesdeHoja } from "../services/sheets-sync.service.js";
+import { obtenerPeriodoActual } from "../utils/periodo-utils.js";
 
 const router = express.Router();
 
@@ -53,8 +54,31 @@ router.get("/master.list", async (req, res) => {
  */
 router.post("/load-maestros", async (req, res) => {
   try {
+    // El dashboard indica a qué período pertenece la carga. Los dashboards de
+    // períodos anteriores no se recargan para no alterar su catálogo.
+    const { dashboardId } = req.body || {};
+    const periodoActual = obtenerPeriodoActual();
+    let periodo = periodoActual;
+
+    if (dashboardId) {
+      const dashResult = await pool.query(
+        `SELECT periodo FROM dashboards WHERE id = $1`,
+        [dashboardId]
+      );
+      if (dashResult.rows.length === 0) {
+        return res.status(404).json({ ok: false, error: "Dashboard no encontrado" });
+      }
+      periodo = dashResult.rows[0].periodo;
+      if (periodo !== periodoActual) {
+        return res.status(400).json({
+          ok: false,
+          error: `Este dashboard pertenece al período "${periodo}". Solo se puede cargar el maestro del período actual ("${periodoActual}").`,
+        });
+      }
+    }
+
     // Obtener datos de maestro.listar
-    console.log("Llamando a maestro.listar en AppScript...");
+    console.log(`Llamando a maestro.listar en AppScript (período "${periodo}")...`);
     const resultString = await callAppScript("maestro.listar");
     console.log("Respuesta de maestro.listar recibida.",resultString);
     // Parsear el JSON string
@@ -77,21 +101,30 @@ router.post("/load-maestros", async (req, res) => {
       });
     }
 
-    // Procesar y crear horarios
-    const resultadoMaestros = await procesarMaestrosYCrearHorarios(maestrosData);
+    // Procesar y crear horarios del período
+    const resultadoMaestros = await procesarMaestrosYCrearHorarios(maestrosData, periodo);
 
-    // Re-evaluar conflictos de todos los dashboards
-    const dashboardsResult = await pool.query(`SELECT id FROM dashboards`);
+    // Re-evaluar conflictos solo de los dashboards del período cargado
+    const dashboardsResult = await pool.query(
+      `SELECT id FROM dashboards WHERE periodo = $1`,
+      [periodo]
+    );
     for (const dash of dashboardsResult.rows) {
       await reevaluarConflictosDashboard(dash.id);
       await reevaluarConflictosPruebasDashboard(dash.id);
     }
-    console.log(`[load-maestros] Re-evaluados conflictos de ${dashboardsResult.rows.length} dashboards`);
+    console.log(`[load-maestros] Re-evaluados conflictos de ${dashboardsResult.rows.length} dashboards del período "${periodo}"`);
+
+    let mensaje = `Se procesaron ${resultadoMaestros.creados ?? 0} horarios programables para el período "${periodo}"`;
+    if (resultadoMaestros.desactivados > 0) {
+      mensaje += `. ${resultadoMaestros.desactivados} curso(s)/prueba(s) ya no vienen en el maestro y se conservaron ocultos: ${resultadoMaestros.detalleDesactivados.join(", ")}`;
+    }
 
     res.json({
       ok: true,
-      mensaje: `Se procesaron ${resultadoMaestros.creados ?? 0} horarios programables`,
+      mensaje,
       horariosCreados: resultadoMaestros,
+      desactivados: resultadoMaestros.detalleDesactivados || [],
     });
   } catch (err) {
     console.error("Error en load-maestros:", err);
@@ -109,6 +142,21 @@ router.post("/load-maestros", async (req, res) => {
 router.post("/usar-respaldo/:dashboardId", async (req, res) => {
   try {
     const { dashboardId } = req.params;
+
+    const dashResult = await pool.query(
+      `SELECT periodo FROM dashboards WHERE id = $1`,
+      [dashboardId]
+    );
+    if (dashResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Dashboard no encontrado" });
+    }
+    if (dashResult.rows[0].periodo !== obtenerPeriodoActual()) {
+      return res.status(400).json({
+        ok: false,
+        error: `Este dashboard pertenece al período "${dashResult.rows[0].periodo}". El respaldo solo está disponible para el período actual.`,
+      });
+    }
+
     const resultado = await usarRespaldoDesdeHoja(parseInt(dashboardId, 10));
 
     res.json({
@@ -143,7 +191,8 @@ router.post("/usar-respaldo/:dashboardId", async (req, res) => {
  */
 router.get("/horas-programables", async (req, res) => {
   try {
-    const horarios = await obtenerHorariosProgramables();
+    const { periodo } = req.query;
+    const horarios = await obtenerHorariosProgramables(periodo || null);
 
     res.json({
       ok: true,
@@ -165,11 +214,12 @@ router.get("/horas-programables", async (req, res) => {
  */
 router.delete("/horas-programables", async (req, res) => {
   try {
-    const cantidad = await limpiarHorariosProgramables();
+    const { periodo } = req.query;
+    await limpiarHorariosProgramables(periodo || null);
 
     res.json({
       ok: true,
-      mensaje: `Se eliminaron ${cantidad} horarios programables`,
+      mensaje: "Horarios programables eliminados",
     });
   } catch (err) {
     console.error("Error limpiando horas-programables:", err);
@@ -186,7 +236,8 @@ router.delete("/horas-programables", async (req, res) => {
  */
 router.get("/pruebas-programables", async (req, res) => {
   try {
-    const pruebas = await obtenerPruebasProgramables();
+    const { periodo } = req.query;
+    const pruebas = await obtenerPruebasProgramables(periodo || null);
 
     res.json({
       ok: true,
@@ -208,11 +259,12 @@ router.get("/pruebas-programables", async (req, res) => {
  */
 router.delete("/pruebas-programables", async (req, res) => {
   try {
-    const cantidad = await limpiarPruebasProgramables();
+    const { periodo } = req.query;
+    await limpiarPruebasProgramables(periodo || null);
 
     res.json({
       ok: true,
-      mensaje: `Se eliminaron ${cantidad} pruebas programables`,
+      mensaje: "Pruebas programables eliminadas",
     });
   } catch (err) {
     console.error("Error limpiando pruebas-programables:", err);
@@ -232,7 +284,13 @@ router.post("/actualizar-calendario/:dashboardId", async (req, res) => {
   try {
     const { dashboardId } = req.params;
     const { pruebasCreadas, eliminadas } = await actualizarCalendarioPruebas(parseInt(dashboardId));
-    const todasLasPruebas = await obtenerPruebasProgramables();
+
+    const dashResult = await pool.query(
+      `SELECT periodo FROM dashboards WHERE id = $1`,
+      [dashboardId]
+    );
+    const todasLasPruebas = await obtenerPruebasProgramables(dashResult.rows[0]?.periodo || null);
+
     res.json({
       ok: true,
       mensaje: `Se crearon/actualizaron ${pruebasCreadas.length} pruebas programables desde el horario`,
