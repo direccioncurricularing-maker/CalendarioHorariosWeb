@@ -1,9 +1,5 @@
-import fs from "fs";
-import path from "path";
 import pool from "./pool.js";
-
-const sqlPath = path.resolve("sql/init.sql");
-const sql = fs.readFileSync(sqlPath, "utf8");
+import { runMigrations } from "./migrate.js";
 
 async function resetDB() {
   try {
@@ -21,13 +17,14 @@ async function resetDB() {
       END $$;
     `);
 
-    await pool.query(sql);
-
     await pool.query("COMMIT");
-    console.log("♻️ Base de datos reiniciada");
+
+    // Al caer todas las tablas (incluida schema_migrations), el runner
+    // vuelve a aplicar el esquema completo desde cero.
+    const aplicadas = await runMigrations();
+    console.log(`♻️ Base de datos reiniciada. Migraciones aplicadas: ${aplicadas.join(", ")}`);
     process.exit(0);
   } catch (err) {
-    await pool.query("ROLLBACK");
     console.error("❌ Error reseteando DB", err);
     process.exit(1);
   }
