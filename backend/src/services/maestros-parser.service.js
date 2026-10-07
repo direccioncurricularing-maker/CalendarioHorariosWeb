@@ -20,11 +20,25 @@ export function buscarColumna(curso, ...patrones) {
     }
   }
 
-  const patronNorm = normalizarTexto(patrones[0]);
+  const normalizarClave = (valor) =>
+    normalizarTexto(valor).replace(/[\s\n_]+/g, '');
+
+  // Coincidencia normalizada exacta: ignora mayúsculas, tildes, espacios y
+  // guiones bajos (ej. "CLASES A PROGRAMAR" encuentra "Clases A PROGRAMAR").
+  for (const patron of patrones) {
+    const patronNorm = normalizarClave(patron);
+    for (const key of Object.keys(curso)) {
+      if (normalizarClave(key) === patronNorm) {
+        return curso[key];
+      }
+    }
+  }
+
+  // Coincidencia parcial con el primer patrón (compatibilidad)
+  const patronNorm = normalizarClave(patrones[0]);
   for (const key of Object.keys(curso)) {
-    const keyNorm = normalizarTexto(key).replace(/[\s\n_]+/g, '');
-    const pNorm = patronNorm.replace(/[\s\n_]+/g, '');
-    if (keyNorm.includes(pNorm) || pNorm.includes(keyNorm)) {
+    const keyNorm = normalizarClave(key);
+    if (keyNorm.includes(patronNorm) || patronNorm.includes(keyNorm)) {
       return curso[key];
     }
   }

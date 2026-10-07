@@ -22,6 +22,20 @@ export {
 
 const TIPOS_HORA = ["CLASE", "AYUDANTIA", "LAB/TALLER"];
 
+// Nombres de columna aceptados para la cantidad de horas a programar por tipo
+const ALIAS_CANTIDAD = {
+  "CLASE": ["CLASES A PROGRAMAR", "CANTIDAD_CLASE", "CANT_CLASE", "CLASES", "CLASE"],
+  "AYUDANTIA": ["AYUDANTIAS PROGRAMAR", "CANTIDAD_AYUDANTIA", "CANT_AYUDANTIA", "AYUDANTIAS", "AYUDANTIA"],
+  "LAB/TALLER": ["LABORATORIOS O TALLERES PROGRAMAR", "CANTIDAD_LAB/TALLER", "CANT_LAB/TALLER", "LABORATORIOS O TALLERES", "LAB/TALLER"],
+};
+
+// Nombre de columna de distribución horaria (formato "2+1" o "3")
+const ALIAS_DISTRIBUCION = [
+  "2+1 O 3? (DISTRIBUCION HORARIO DE CLASES)",
+  "DISTRIBUCION",
+  "DIST",
+];
+
 const BLOQUES_EXAMEN = [
   { inicio: "8:30", fin: "10:20" },
   { inicio: "9:30", fin: "11:20" },
@@ -88,7 +102,7 @@ export async function procesarMaestrosYCrearHorarios(maestrosData, periodo) {
       }
 
       const rutProf1 = String(buscarColumna(curso, "RUT PROFESOR 1", "RUT_PROFESOR_1", "RUT_PROF_1", "RUT 1", "RUT1") || '').trim();
-      const nombreProf1 = String(buscarColumna(curso, "NOMBRE PROFESOR 1", "NOMBRE_PROFESOR_1", "NOMBRE_PROF_1", "NOMBRE 1", "NOMBRE1") || '').trim();
+      const nombreProf1 = String(buscarColumna(curso, "NOMBRE PROFESOR BANNER 1", "NOMBRE PROFESOR 1", "NOMBRE_PROFESOR_1", "NOMBRE_PROF_1", "NOMBRE 1", "NOMBRE1") || '').trim();
       const rutProf2 = String(buscarColumna(curso, "RUT PROFESOR 2", "RUT_PROFESOR_2", "RUT_PROF_2", "RUT 2", "RUT2") || '').trim();
       const nombreProf2 = String(buscarColumna(curso, "NOMBRE PROFESOR 2", "NOMBRE_PROFESOR_2", "NOMBRE_PROF_2", "NOMBRE 2", "NOMBRE2") || '').trim();
 
@@ -105,14 +119,20 @@ export async function procesarMaestrosYCrearHorarios(maestrosData, periodo) {
       }
 
       for (const tipoHora of TIPOS_HORA) {
-        const cantidadHorasCol = buscarColumna(curso, `CANTIDAD_${tipoHora}`, `CANT_${tipoHora}`, `${tipoHora}`);
-        const cantidadHoras = cantidadHorasCol != null ? parseInt(String(cantidadHorasCol).trim(), 10) : 0;
+        const cantidadHorasCol = buscarColumna(curso, ...ALIAS_CANTIDAD[tipoHora]);
+        const cantidadHorasTexto = cantidadHorasCol != null ? String(cantidadHorasCol).trim() : '';
+        const cantidadHoras = cantidadHorasTexto !== '' ? (parseInt(cantidadHorasTexto, 10) || 0) : 0;
 
         if (!cantidadHoras || cantidadHoras <= 0) {
           continue;
         }
 
-        const distribucionStr = buscarColumna(curso, `DISTRIBUCION_${tipoHora}`, `DIST_${tipoHora}`);
+        const distribucionStr = buscarColumna(
+          curso,
+          `DISTRIBUCION_${tipoHora}`,
+          `DIST_${tipoHora}`,
+          ...ALIAS_DISTRIBUCION
+        );
         const distribucionHorario = distribucionStr ? String(distribucionStr).trim() : null;
 
         await crearHorarioProgramable(
@@ -125,11 +145,18 @@ export async function procesarMaestrosYCrearHorarios(maestrosData, periodo) {
         contador.creados++;
       }
 
-      const tieneExamenCol = buscarColumna(curso, "TIENE_EXAMEN", "EXAMEN");
+      const tieneExamenCol = buscarColumna(curso, "TIENE_EXAMEN", "EXAMEN (SI O NO)", "EXAMEN");
       const tieneExamen = tieneExamenCol != null && esMandante(tieneExamenCol);
 
-      const cantEvalStr = buscarColumna(curso, "CANTIDAD_EVALUACIONES", "CANT_EVAL", "EVALUACIONES");
-      const cantidadEvaluaciones = cantEvalStr != null ? parseInt(String(cantEvalStr).trim(), 10) : 0;
+      const cantEvalStr = buscarColumna(
+        curso,
+        "CANTIDAD_EVALUACIONES",
+        "CANTIDAD EVALUACIONES (SEMESTRALES)",
+        "CANT_EVAL",
+        "EVALUACIONES"
+      );
+      const cantEvalTexto = cantEvalStr != null ? String(cantEvalStr).trim() : '';
+      const cantidadEvaluaciones = cantEvalTexto !== '' ? (parseInt(cantEvalTexto, 10) || 0) : 0;
 
       if (tieneExamen) {
         const pruebaExamen = await crearPruebaProgramable(
